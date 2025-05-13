@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 
 	"github.com/dhconnelly/rtreego"
@@ -34,7 +35,7 @@ func (item rtreeItem) Bounds() rtreego.Rect {
 }
 
 func main() {
-	eps := flag.Float64("eps", 0.01, "epsilon distance in degrees")
+	eps := flag.Float64("eps", 0.01, "epsilon distance (in degrees for Euclidean, or meters if using haversine)")
 	minPts := flag.Int("minPts", 5, "minimum number of points per cluster")
 	flag.Parse()
 
@@ -94,7 +95,11 @@ func dbscan(points []Point, eps float64, minPts int) []ClusterOutput {
 			ids[j] = points[idx].ID
 		}
 		n := float64(len(cluster))
-		result = append(result, ClusterOutput{CentroidLat: sumLat / n, CentroidLon: sumLon / n, IDs: ids})
+		result = append(result, ClusterOutput{
+			CentroidLat: sumLat / n,
+			CentroidLon: sumLon / n,
+			IDs:         ids,
+		})
 	}
 	return result
 }
@@ -117,14 +122,20 @@ func expandCluster(points []Point, cluster *[]int, neighbors []int, visited []bo
 
 func regionQuery(points []Point, tree *rtreego.Rtree, idx int, eps float64) []int {
 	rect := rtreego.Point{points[idx].Lat, points[idx].Lon}.ToRect(eps)
-	results := tree.SearchIntersect(rect)
-	var ids []int
-	for _, obj := range results {
-		if item, ok := obj.(rtreeItem); ok {
-			ids = append(ids, item.index)
+	candidates := tree.SearchIntersect(rect)
+
+	var neighbors []int
+	for _, obj := range candidates {
+		item := obj.(rtreeItem)
+		p := points[item.index]
+		dx := points[idx].Lat - p.Lat
+		dy := points[idx].Lon - p.Lon
+		d := math.Hypot(dx, dy)
+		if d <= eps {
+			neighbors = append(neighbors, item.index)
 		}
 	}
-	return ids
+	return neighbors
 }
 
 func contains(slice []int, val int) bool {
